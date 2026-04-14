@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a user in the system.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier." },
+        "nome": { "type": "string", "description": "User's full name." },
+        "email": { "type": "string", "format": "email", "description": "User's email." },
+        "role": { "type": "string", "enum": ["ADMIN", "SOCIO", "GESTOR", "COLABORADOR"], "description": "User's role." },
+        "empresa_id": { "type": "string", "description": "ID of the company the user belongs to." },
+        "senha": { "type": "string", "description": "Hashed password." },
+        "primeiro_acesso": { "type": "boolean", "description": "Whether it's the user's first access." },
+        "responsavelDiretoId": { "type": "string", "description": "ID of the direct manager." }
+      },
+      "required": ["id", "nome", "email", "role", "senha", "primeiro_acesso"]
+    },
+    "Empresa": {
+      "title": "Empresa",
+      "description": "Represents a company.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier." },
+        "nome": { "type": "string", "description": "Company name." },
+        "cnpj": { "type": "string", "description": "Company CNPJ." },
+        "qualificacao": { "type": "string", "description": "Company qualification." },
+        "responsavel": { "type": "string", "description": "Name of the responsible partner." },
+        "status": { "type": "string", "description": "Company status." },
+        "dataCadastro": { "type": "string", "format": "date", "description": "Registration date." }
+      },
+      "required": ["id", "nome"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "User" },
+      "description": "User documents."
+    },
+    "/companies/{companyId}": {
+      "schema": { "$ref": "Empresa" },
+      "description": "Company documents."
+    }
+  }
+}

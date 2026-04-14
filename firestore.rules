@@ -1,0 +1,84 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: userId
+// Fields:
+//   - id: string (required)
+//   - nome: string (required)
+//   - email: string (required, email format)
+//   - role: string (required, enum: ADMIN, SOCIO, GESTOR, COLABORADOR)
+//   - empresa_id: string (optional)
+//   - senha: string (required, hashed)
+//   - primeiro_acesso: boolean (required)
+//   - responsavelDiretoId: string (optional)
+//
+// Collection: companies
+// Document ID: companyId
+// Fields:
+//   - id: string (required)
+//   - nome: string (required)
+//   - cnpj: string (optional)
+//   - qualificacao: string (optional)
+//   - responsavel: string (optional)
+//   - status: string (optional)
+//   - dataCadastro: string (optional, date format)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return isAuthenticated() && userDoc.data != null && userDoc.data.role == 'ADMIN';
+    }
+
+    function getRequestUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'nome', 'email', 'role', 'senha', 'primeiro_acesso']) &&
+             data.nome is string && data.nome.size() > 0 &&
+             data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$") &&
+             data.role in ['ADMIN', 'SOCIO', 'GESTOR', 'COLABORADOR'] &&
+             data.primeiro_acesso is bool;
+    }
+
+    // ===============================================================
+    // Match Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (
+        isOwner(userId) || 
+        isAdmin() || 
+        (getRequestUser() != null && resource.data.empresa_id == getRequestUser().empresa_id)
+      );
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isAdmin() || isOwner(userId));
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isAdmin() || isOwner(userId));
+      allow delete: if isAdmin();
+    }
+
+    match /companies/{companyId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+  }
+}

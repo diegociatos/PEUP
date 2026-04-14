@@ -1,0 +1,27 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  /* Ciatos Jurídico Institutional Palette */
+  --color-bg: #F9FAFB;
+  --color-sidebar: #630d16;
+  --color-card: #FFFFFF;
+  --color-text-main: #111827;
+  --color-text-muted: #6B7280;
+  --color-accent: #630d16;
+  --color-border: #E5E7EB;
+
+  --font-sans: "Book Antiqua", Georgia, serif;
+}
+
+@layer base {
+  body {
+    @apply font-sans bg-[--color-bg] text-[--color-text-main] text-[14px];
+  }
+  h1 {
+    @apply text-[20px] font-semibold text-[--color-text-main];
+  }
+  h2 {
+    @apply text-[16px] font-medium text-[--color-text-main];
+  }
+}
