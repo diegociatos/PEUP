@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { Building2, Users, CheckCircle, Plus, List } from 'lucide-react';
 import { User, Empresa } from '../types';
 import PasswordDisplayModal from './PasswordDisplayModal';
-import { httpsCallable } from 'firebase/functions';
-import { functions } from '../lib/firebase';
+import { db } from '../lib/firebase';
+import { doc, setDoc } from 'firebase/firestore';
+import firebaseConfig from '../../firebase-applet-config.json';
 
 interface DashboardAdminProps {
   currentUser: User;
@@ -31,6 +32,8 @@ export default function DashboardAdmin({ currentUser, users, setUsers, companies
     .slice(-3)
     .map(s => ({ nome: s.nome, empresa: companies.find(e => e.id === s.empresa_id)?.nome || 'N/A' }));
 
+  const [saving, setSaving] = useState(false);
+
   const handleSaveUsuario = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -39,22 +42,66 @@ export default function DashboardAdmin({ currentUser, users, setUsers, companies
       return;
     }
 
+    setSaving(true);
     try {
-      const createUser = httpsCallable(functions, 'createUserAndLinkToCompany');
-      const result = await createUser({
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+      const randomPart = Array.from({length: 4}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+      const tempPassword = 'PEUP@' + randomPart;
+
+      const signUpRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`,
+        { method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ email: formData.emailSocio, password: tempPassword, returnSecureToken: true }) }
+      );
+      const signUpData = await signUpRes.json();
+
+      let uid: string;
+      let displayPassword = tempPassword;
+
+      if (signUpData.error) {
+        if (signUpData.error.message === 'EMAIL_EXISTS') {
+          const existingUser = users.find(u => u.email === formData.emailSocio);
+          if (existingUser) {
+            await setDoc(doc(db, 'users', existingUser.id), {
+              ...existingUser,
+              role: 'SOCIO',
+              empresa_id: formData.empresaId || existingUser.empresa_id,
+            }, { merge: true });
+            displayPassword = '(usar senha atual da conta existente)';
+            setSenhaProvisoria({ nome: formData.nomeSocio, senha: displayPassword });
+            setShowUserForm(false);
+            setFormData({ ...formData, nomeSocio: '', emailSocio: '', empresaId: '' });
+            return;
+          } else {
+            alert('Este email já possui conta Firebase Auth, mas sem perfil. Faça login com ele primeiro.');
+            return;
+          }
+        } else {
+          alert('Erro ao criar conta: ' + signUpData.error.message);
+          return;
+        }
+      } else {
+        uid = signUpData.localId;
+      }
+
+      const newSocio: User = {
+        id: uid,
         nome: formData.nomeSocio,
         email: formData.emailSocio,
         role: 'SOCIO',
-        empresa_id: formData.empresaId || null
-      });
-      
-      const { provisionalPassword } = result.data as { provisionalPassword: string };
-      setSenhaProvisoria({ nome: formData.nomeSocio, senha: provisionalPassword });
+        empresa_id: formData.empresaId || '',
+        primeiro_acesso: true,
+      };
+      await setDoc(doc(db, 'users', uid), newSocio);
+
+      setSenhaProvisoria({ nome: formData.nomeSocio, senha: displayPassword });
       setShowUserForm(false);
       setFormData({ ...formData, nomeSocio: '', emailSocio: '', empresaId: '' });
     } catch (error: any) {
       console.error("Erro ao salvar usuário:", error);
-      alert(error.message);
+      alert('Erro: ' + (error.message || String(error)));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -104,7 +151,7 @@ export default function DashboardAdmin({ currentUser, users, setUsers, companies
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <button type="button" onClick={() => setShowUserForm(false)} className="px-4 py-2 rounded bg-slate-200">Cancelar</button>
-              <button type="submit" className="px-4 py-2 rounded bg-[#630d16] text-white">Salvar</button>
+              <button type="submit" disabled={saving} className="px-4 py-2 rounded bg-[#630d16] text-white disabled:opacity-50">{saving ? 'Criando...' : 'Salvar'}</button>
             </div>
           </form>
         </div>
