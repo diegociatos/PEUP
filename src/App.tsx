@@ -307,10 +307,10 @@ export default function App() {
                   >
                     {!activeCompany && <option value="">Selecione uma empresa</option>}
                     {currentUser.role === 'ADMIN' 
-                      ? companies.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)
+                      ? companies.map(c => <option key={`admin-${c.id}`} value={c.id}>{c.nome}</option>)
                       : companies
                           .filter(c => users.some(u => u.id === currentUser.id && (u.empresa_id === c.id || u.empresaId === c.id)))
-                          .map(c => <option key={c.id} value={c.id}>{c.nome}</option>)
+                          .map(c => <option key={`user-${c.id}`} value={c.id}>{c.nome}</option>)
                     }
                   </select>
                 )}

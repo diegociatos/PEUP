@@ -30,8 +30,22 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true;
+    // Função para verificar se o usuário é ADMIN
+    function isAdmin() {
+      return request.auth != null && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+    }
+
+    // Regras para a coleção 'users'
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Regras para a coleção 'companies'
+    match /companies/{companyId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
     }
   }
 }
