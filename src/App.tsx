@@ -7,7 +7,7 @@ import MetaIndividualModule from './components/MetaIndividualModule';
 import { LayoutDashboard, Target, CalendarDays, Calendar, BarChart3, Users, Settings, LogOut, CheckCircle2, Award, Bell, Building } from 'lucide-react';
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
 import DashboardAdmin from './components/DashboardAdmin';
 import DashboardIndividual from './components/DashboardIndividual';
 import DashboardGestor from './components/DashboardGestor';
@@ -88,15 +88,16 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [activeView, setActiveView] = useState<'Dashboard' | 'Estratégia' | 'Anual' | 'Trimestral' | 'Mensal' | 'KPIs' | 'HistoricoConquistas' | 'Reuniões' | 'Desempenho' | 'Gestão de Produtividade' | 'Configurações'>('Dashboard');
 
+  const ADMIN_EMAILS = ['diegociatos@gmail.com', 'diego.garcia@grupociatos.com.br'];
+
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       console.log("AUTH_STATE_CHANGED", user ? `User: ${user.uid}` : "Logged out");
       if (user) {
         console.log("Attempting to fetch user document for UID:", user.uid);
-        // Fetch user data from Firestore to set currentUser
         const userDocRef = collection(db, 'users');
         const q = query(userDocRef, where('id', '==', user.uid));
-        const unsubUser = onSnapshot(q, (snapshot) => {
+        const unsubUser = onSnapshot(q, async (snapshot) => {
           console.log("USER_SNAPSHOT_SIZE", snapshot.size);
           if (!snapshot.empty) {
             const userData = snapshot.docs[0].data() as User;
@@ -110,6 +111,19 @@ export default function App() {
             }
           } else {
             console.warn("USER_SNAPSHOT_EMPTY for uid:", user.uid);
+            // Auto-create admin doc for known admin emails
+            if (user.email && ADMIN_EMAILS.includes(user.email)) {
+              const adminUser: User = {
+                id: user.uid,
+                nome: user.email.split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+                email: user.email,
+                role: 'ADMIN',
+                empresa_id: '',
+                primeiro_acesso: false,
+              };
+              await setDoc(doc(db, 'users', user.uid), adminUser);
+              console.log("AUTO_CREATED_ADMIN", adminUser);
+            }
           }
         }, (error) => {
           console.error("USER_SNAPSHOT_ERROR", error.code, error.message);
