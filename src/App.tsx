@@ -7,7 +7,7 @@ import MetaIndividualModule from './components/MetaIndividualModule';
 import { LayoutDashboard, Target, CalendarDays, Calendar, BarChart3, Users, Settings, LogOut, CheckCircle2, Award, Bell, Building } from 'lucide-react';
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, onSnapshot, query, where, doc, setDoc, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, setDoc, getDocs, getDoc } from 'firebase/firestore';
 import DashboardAdmin from './components/DashboardAdmin';
 import DashboardIndividual from './components/DashboardIndividual';
 import DashboardGestor from './components/DashboardGestor';
@@ -226,6 +226,82 @@ export default function App() {
   const handleAiAction = async (action: string) => {
     setAiResponse(`Análise de ${action} em progresso... (Simulação)`);
   };
+
+  // Load or create PEUP & Planejamento when activeCompany changes
+  useEffect(() => {
+    if (!isLoggedIn || !activeCompany) return;
+    const companyId = activeCompany.id;
+
+    (async () => {
+      // Load or create PEUP
+      const peupRef = doc(db, 'peups', companyId);
+      const peupSnap = await getDoc(peupRef);
+      if (peupSnap.exists()) {
+        setPeups(prev => ({ ...prev, [companyId]: peupSnap.data() as PEUP }));
+      } else {
+        const newPeup: PEUP = {
+          empresa_id: companyId,
+          proposito: '',
+          valores_grupo: ['Integridade', 'Excelência', 'Inovação', 'Colaboração'],
+          valores_complementares: [],
+          promessas: [],
+          bhag: { meta_3_5: '', meta_10: '', meta_25: '' },
+        };
+        await setDoc(peupRef, newPeup);
+        setPeups(prev => ({ ...prev, [companyId]: newPeup }));
+      }
+
+      // Load or create Planejamento
+      const planRef = doc(db, 'planejamentos', companyId);
+      const planSnap = await getDoc(planRef);
+      if (planSnap.exists()) {
+        setPlanejamentos(prev => ({ ...prev, [companyId]: planSnap.data() as Planejamento }));
+      } else {
+        const newPlan: Planejamento = {
+          empresa_id: companyId,
+          historico_anual: [{
+            ano: new Date().getFullYear(),
+            pilares: [
+              { id: 'financeiro', nome: 'Financeiro', icone: '💰', indicadores: [], prioridades: [] },
+              { id: 'clientes', nome: 'Clientes', icone: '👥', indicadores: [], prioridades: [] },
+              { id: 'pessoas', nome: 'Pessoas', icone: '🧑‍💼', indicadores: [], prioridades: [] },
+              { id: 'eficiencia', nome: 'Eficiência', icone: '⚙️', indicadores: [], prioridades: [] },
+            ],
+            faixas: [
+              { nome: 'Bronze', valor: 0, recompensa: '' },
+              { nome: 'Prata', valor: 0, recompensa: '' },
+              { nome: 'Ouro', valor: 0, recompensa: '' },
+            ],
+            faturamento_total: 0,
+            margem_liquida: 0,
+            ticket_medio: 0,
+          }],
+          historico_trimestral: [],
+          historico_mensal: [],
+        };
+        await setDoc(planRef, newPlan);
+        setPlanejamentos(prev => ({ ...prev, [companyId]: newPlan }));
+      }
+    })();
+  }, [isLoggedIn, activeCompany]);
+
+  // Auto-save PEUP to Firestore when it changes
+  useEffect(() => {
+    if (!activeCompany || !peups[activeCompany.id]) return;
+    const timeout = setTimeout(() => {
+      setDoc(doc(db, 'peups', activeCompany.id), peups[activeCompany.id]).catch(console.error);
+    }, 1000);
+    return () => clearTimeout(timeout);
+  }, [peups, activeCompany]);
+
+  // Auto-save Planejamento to Firestore when it changes
+  useEffect(() => {
+    if (!activeCompany || !planejamentos[activeCompany.id]) return;
+    const timeout = setTimeout(() => {
+      setDoc(doc(db, 'planejamentos', activeCompany.id), planejamentos[activeCompany.id]).catch(console.error);
+    }, 1000);
+    return () => clearTimeout(timeout);
+  }, [planejamentos, activeCompany]);
   
   const activePeup = activeCompany ? peups[activeCompany.id] : null;
   const activePlanejamento = activeCompany ? planejamentos[activeCompany.id] : null;
