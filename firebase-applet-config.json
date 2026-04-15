@@ -1,9 +1,9 @@
 {
   "projectId": "peup-ciatos",
   "appId": "1:1067931354046:web:790b38f323b76f52ac6fef",
-  "apiKey": "AIzaSyBx68va_mC0Dntkvj06HwIk3mYNT2uy0IU",
+  "apiKey": "AIzaSyBx68va_mC0DntkvjO6HwIk3mYNT2uy0IU",
   "authDomain": "peup-ciatos.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-4581935c-cdb0-4570-a867-e3be73b65fe3",
+  "firestoreDatabaseId": "(default)",
   "storageBucket": "peup-ciatos.firebasestorage.app",
   "messagingSenderId": "1067931354046",
   "measurementId": ""
