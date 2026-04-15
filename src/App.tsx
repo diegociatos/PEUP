@@ -7,9 +7,7 @@ import MetaIndividualModule from './components/MetaIndividualModule';
 import { LayoutDashboard, Target, CalendarDays, Calendar, BarChart3, Users, Settings, LogOut, CheckCircle2, Award, Bell, Building } from 'lucide-react';
 import { auth, db } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
-
-const ADMIN_EMAILS = ['diegociatos@gmail.com', 'diego.garcia@grupociatos.com.br'];
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import DashboardAdmin from './components/DashboardAdmin';
 import DashboardIndividual from './components/DashboardIndividual';
 import DashboardGestor from './components/DashboardGestor';
@@ -92,13 +90,17 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      console.log("AUTH_STATE_CHANGED", user ? `User: ${user.uid}` : "Logged out");
       if (user) {
+        console.log("Attempting to fetch user document for UID:", user.uid);
         // Fetch user data from Firestore to set currentUser
         const userDocRef = collection(db, 'users');
         const q = query(userDocRef, where('id', '==', user.uid));
         const unsubUser = onSnapshot(q, (snapshot) => {
+          console.log("USER_SNAPSHOT_SIZE", snapshot.size);
           if (!snapshot.empty) {
             const userData = snapshot.docs[0].data() as User;
+            console.log("USER_DATA_FOUND", userData);
             setCurrentUser(userData);
             if (userData.primeiro_acesso) {
               setUserToChange(userData);
@@ -106,20 +108,11 @@ export default function App() {
             } else {
               setIsLoggedIn(true);
             }
-          } else if (user.email && ADMIN_EMAILS.includes(user.email)) {
-            // Auto-create admin doc for whitelisted emails
-            const adminDoc: User = {
-              id: user.uid,
-              nome: user.email.split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-              email: user.email,
-              role: 'ADMIN',
-              primeiro_acesso: false
-            };
-            setDoc(doc(db, 'users', user.uid), adminDoc).then(() => {
-              setCurrentUser(adminDoc);
-              setIsLoggedIn(true);
-            }).catch(err => console.error('Erro ao criar admin:', err));
+          } else {
+            console.warn("USER_SNAPSHOT_EMPTY for uid:", user.uid);
           }
+        }, (error) => {
+          console.error("USER_SNAPSHOT_ERROR", error.code, error.message);
         });
         // We need to store this unsubscribe function somewhere
         (window as any).unsubUser = unsubUser;

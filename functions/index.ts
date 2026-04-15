@@ -1,93 +1,59 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 
-admin.initializeApp();
+admin.initializeApp({
+  projectId: 'peup-ciatos'
+});
 
-export const createCompanyWithSocio = functions.https.onCall(async (request) => {
+export const createUserAndLinkToCompany = functions.region('us-central1').https.onCall(async (request) => {
+  console.log("CREATE_USER_AND_LINK_START");
   try {
-    const data = request.data;
+    const { nome, email, role, empresa_id } = request.data;
     const auth = request.auth;
-    console.log("CREATE_COMPANY_REQUEST", { data, auth });
-    // 1. Check if user is authenticated and is ADMIN
-    if (!auth) {
-      console.log("CREATE_COMPANY_ERROR: Unauthenticated");
-      throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
-    }
 
+    if (!auth) throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
+    
     const adminUser = await admin.firestore().collection('users').doc(auth.uid).get();
-    console.log("CREATE_COMPANY_ADMIN_CHECK", { uid: auth.uid, exists: adminUser.exists, role: adminUser.data()?.role });
     if (!adminUser.exists || adminUser.data()?.role !== 'ADMIN') {
-      console.log("CREATE_COMPANY_ERROR: Permission Denied");
-      throw new functions.https.HttpsError('permission-denied', 'Only admins can create companies.');
+      throw new functions.https.HttpsError('permission-denied', 'Only admins can create users.');
     }
 
-    const { nome, cnpj, qualificacao, socioNome, socioEmail } = data as { 
-      nome: string; 
-      cnpj: string; 
-      qualificacao: string; 
-      socioNome: string; 
-      socioEmail: string; 
-    };
-
-    if (!nome || !cnpj || !qualificacao || !socioNome || !socioEmail) {
-      console.log("CREATE_COMPANY_ERROR: Missing fields", { nome, cnpj, qualificacao, socioNome, socioEmail });
+    if (!nome || !email || !role) {
       throw new functions.https.HttpsError('invalid-argument', 'Missing required fields.');
     }
 
-    // 2. Generate provisional password
-    const generatePassword = (len=12) => {
-      const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+";
-      let password = "";
-      for (let i = 0; i < len; i++) {
-        password += charset.charAt(Math.floor(Math.random() * charset.length));
-      }
-      return password;
-    };
-    const provisionalPassword = generatePassword(12);
-    console.log("CREATE_COMPANY_PASSWORD_GENERATED");
-
-    // 3. Create user in Auth
+    const provisionalPassword = Math.random().toString(36).slice(-12);
+    
+    console.log("DEBUG_AUTH_CREATE_USER_PARAMS", {
+      email,
+      password: '***',
+      displayName: nome
+    });
+    
     const userRecord = await admin.auth().createUser({
-      email: socioEmail,
+      email,
       password: provisionalPassword,
-      displayName: socioNome,
+      displayName: nome,
     });
-    console.log("CREATE_COMPANY_USER_CREATED", { uid: userRecord.uid });
 
-    const companyId = admin.firestore().collection('companies').doc().id;
-    const userId = userRecord.uid;
-
-    // 4. Create documents in Firestore atomically
-    const batch = admin.firestore().batch();
-
-    const companyRef = admin.firestore().collection('companies').doc(companyId);
-    batch.set(companyRef, {
-      id: companyId,
+    await admin.firestore().collection('users').doc(userRecord.uid).set({
+      id: userRecord.uid,
       nome,
-      cnpj,
-      qualificacao,
-      responsavel: socioNome,
-      status: 'Ativa',
-      dataCadastro: new Date().toISOString().split('T')[0]
-    });
-
-    const userRef = admin.firestore().collection('users').doc(userId);
-    batch.set(userRef, {
-      id: userId,
-      nome: socioNome,
-      email: socioEmail,
-      role: 'SOCIO',
-      empresa_id: companyId,
-      senha: provisionalPassword, // In a real app, hash this!
+      email,
+      role,
+      empresa_id: empresa_id || null,
+      senha: provisionalPassword,
       primeiro_acesso: true
     });
-    console.log("CREATE_COMPANY_BATCH_COMMITTING");
-    await batch.commit();
-    console.log("CREATE_COMPANY_BATCH_COMMITTED");
 
-    return { companyId, userId, provisionalPassword };
-  } catch (error) {
-    console.error("CREATE_COMPANY_CRITICAL_ERROR", error);
-    throw error;
+    console.log("USER_CREATED_AND_LINKED", { uid: userRecord.uid, empresa_id });
+    return { userId: userRecord.uid, provisionalPassword };
+  } catch (error: any) {
+    console.error("CREATE_USER_AND_LINK_ERROR", {
+      message: error.message,
+      stack: error.stack,
+      code: error.code
+    });
+    throw new functions.https.HttpsError('internal', error.message || 'Unknown error');
   }
 });

@@ -17,8 +17,9 @@ export default function Login({ onLogin }: LoginProps) {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       onLogin();
-    } catch (err) {
-      console.error("LOGIN_ERROR", err);
+    } catch (err: any) {
+      console.error("LOGIN_ERROR_CODE:", err.code);
+      console.error("LOGIN_ERROR_MESSAGE:", err.message);
       setError('Credenciais inválidas. Por favor, verifique seu e-mail e senha.');
     }
   };

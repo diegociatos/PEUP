@@ -2,9 +2,8 @@ import React, { useState } from 'react';
 import { Building2, Users, CheckCircle, Plus, List } from 'lucide-react';
 import { User, Empresa } from '../types';
 import PasswordDisplayModal from './PasswordDisplayModal';
-import { db } from '../lib/firebase';
-import { doc, setDoc } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../lib/firebase';
 
 interface DashboardAdminProps {
   currentUser: User;
@@ -17,10 +16,11 @@ interface DashboardAdminProps {
 export default function DashboardAdmin({ currentUser, users, setUsers, companies, setCompanies }: DashboardAdminProps) {
   const [showList, setShowList] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [showUserForm, setShowUserForm] = useState(false);
   const [senhaProvisoria, setSenhaProvisoria] = useState<{ nome: string, senha: string } | null>(null);
   const [formData, setFormData] = useState({ 
     nomeEmpresa: '', cnpj: '', qualificacao: '', 
-    nomeSocio: '', emailSocio: '' 
+    nomeSocio: '', emailSocio: '', empresaId: ''
   });
 
   const totalEmpresas = companies.length;
@@ -31,102 +31,30 @@ export default function DashboardAdmin({ currentUser, users, setUsers, companies
     .slice(-3)
     .map(s => ({ nome: s.nome, empresa: companies.find(e => e.id === s.empresa_id)?.nome || 'N/A' }));
 
-  const [saving, setSaving] = useState(false);
-
-  const handleSaveEmpresa = async (e: React.FormEvent) => {
+  const handleSaveUsuario = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("CREATE_COMPANY_SUBMIT", formData);
     
-    if (!formData.nomeEmpresa || !formData.cnpj || !formData.qualificacao || !formData.nomeSocio || !formData.emailSocio) {
-      alert("Por favor, preencha todos os campos obrigatórios.");
+    if (!formData.nomeSocio || !formData.emailSocio) {
+      alert("Por favor, preencha o nome e o e-mail do usuário.");
       return;
     }
 
-    setSaving(true);
     try {
-      // Generate provisional password
-      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-      const randomPart = Array.from({length: 4}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-      const tempPassword = 'PEUP@' + randomPart;
-
-      // Create Firebase Auth account via REST API
-      const signUpRes = await fetch(
-        `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`,
-        { method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ email: formData.emailSocio, password: tempPassword, returnSecureToken: true }) }
-      );
-      const signUpData = await signUpRes.json();
-
-      // Save company to Firestore first
-      const newCompanyId = Date.now().toString();
-      const newCompany: Empresa = {
-        id: newCompanyId,
-        nome: formData.nomeEmpresa,
-        cnpj: formData.cnpj,
-        qualificacao: formData.qualificacao,
-        segmento: formData.qualificacao,
-        responsavel: formData.nomeSocio,
-        descricao: '',
-        logo_url: '',
-        status: 'Ativa',
-        dataCadastro: new Date().toISOString().split('T')[0],
-      };
-      await setDoc(doc(db, 'companies', newCompanyId), newCompany);
-
-      let displayPassword = tempPassword;
-
-      if (signUpData.error) {
-        if (signUpData.error.message === 'EMAIL_EXISTS') {
-          // Email already has Auth account — link existing user to new company
-          const existingUser = users.find(u => u.email === formData.emailSocio);
-          if (existingUser) {
-            await setDoc(doc(db, 'users', existingUser.id), {
-              ...existingUser,
-              role: 'SOCIO',
-              empresa_id: newCompanyId,
-            }, { merge: true });
-            displayPassword = '(usar senha atual da conta existente)';
-          } else {
-            // Auth account exists but no Firestore doc — create placeholder
-            const placeholderId = 'pending_' + Date.now();
-            const newSocio: User = {
-              id: placeholderId,
-              nome: formData.nomeSocio,
-              email: formData.emailSocio,
-              role: 'SOCIO',
-              empresa_id: newCompanyId,
-              primeiro_acesso: true,
-            };
-            await setDoc(doc(db, 'users', placeholderId), newSocio);
-            displayPassword = '(usar senha atual — conta já existente)';
-          }
-        } else {
-          alert('Erro ao criar conta: ' + signUpData.error.message);
-          setSaving(false);
-          return;
-        }
-      } else {
-        // New Auth account created — save sócio user doc
-        const uid = signUpData.localId;
-        const newSocio: User = {
-          id: uid,
-          nome: formData.nomeSocio,
-          email: formData.emailSocio,
-          role: 'SOCIO',
-          empresa_id: newCompanyId,
-          primeiro_acesso: true,
-        };
-        await setDoc(doc(db, 'users', uid), newSocio);
-      }
-
-      setSenhaProvisoria({ nome: formData.nomeSocio, senha: displayPassword });
-      setShowForm(false);
-      setFormData({ nomeEmpresa: '', cnpj: '', qualificacao: '', nomeSocio: '', emailSocio: '' });
+      const createUser = httpsCallable(functions, 'createUserAndLinkToCompany');
+      const result = await createUser({
+        nome: formData.nomeSocio,
+        email: formData.emailSocio,
+        role: 'SOCIO',
+        empresa_id: formData.empresaId || null
+      });
+      
+      const { provisionalPassword } = result.data as { provisionalPassword: string };
+      setSenhaProvisoria({ nome: formData.nomeSocio, senha: provisionalPassword });
+      setShowUserForm(false);
+      setFormData({ ...formData, nomeSocio: '', emailSocio: '', empresaId: '' });
     } catch (error: any) {
-      console.error("Erro ao salvar empresa:", error);
-      alert('Erro: ' + (error.message || String(error)));
-    } finally {
-      setSaving(false);
+      console.error("Erro ao salvar usuário:", error);
+      alert(error.message);
     }
   };
 
@@ -156,32 +84,27 @@ export default function DashboardAdmin({ currentUser, users, setUsers, companies
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-8">
         <h2 className="text-xl font-serif font-bold text-[#630d16] mb-4">Gestão de Empresas</h2>
         <div className="flex gap-4">
-            <button onClick={() => setShowForm(true)} className="bg-[#630d16] text-white px-4 py-2 rounded-lg font-semibold hover:bg-[#4a0a11] flex items-center gap-2"><Plus size={18}/> Criar Nova Empresa</button>
+            <button onClick={() => setShowUserForm(true)} className="bg-[#630d16] text-white px-4 py-2 rounded-lg font-semibold hover:bg-[#4a0a11] flex items-center gap-2"><Plus size={18}/> Vincular Usuário</button>
             <button onClick={() => setShowList(!showList)} className="bg-white text-[#630d16] px-4 py-2 rounded-lg font-semibold border border-[#630d16] hover:bg-slate-100 flex items-center gap-2"><List size={18}/> Listar Empresas Ativas</button>
         </div>
       </div>
 
-      {/* Formulário de Criação */}
-      {showForm && (
+      {/* Formulário de Vinculação de Usuário */}
+      {showUserForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <form onSubmit={handleSaveEmpresa} className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md">
-            <h2 className="text-xl font-serif font-bold text-[#630d16] mb-4">Nova Empresa</h2>
+          <form onSubmit={handleSaveUsuario} className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md">
+            <h2 className="text-xl font-serif font-bold text-[#630d16] mb-4">Vincular Usuário</h2>
             <div className="space-y-4">
-              <input type="text" placeholder="Nome da Empresa" className="w-full p-2 border rounded" value={formData.nomeEmpresa} onChange={e => setFormData({...formData, nomeEmpresa: e.target.value})} />
-              <input type="text" placeholder="CNPJ (00.000.000/0000-00)" className="w-full p-2 border rounded" value={formData.cnpj} onChange={e => setFormData({...formData, cnpj: e.target.value})} />
-              <select className="w-full p-2 border rounded" value={formData.qualificacao} onChange={e => setFormData({...formData, qualificacao: e.target.value})}>
-                <option value="">Selecione a Qualificação</option>
-                <option value="MEI">MEI</option>
-                <option value="ME">ME</option>
-                <option value="EPP">EPP</option>
-                <option value="LTDA">LTDA</option>
+              <input type="text" placeholder="Nome do Usuário" className="w-full p-2 border rounded" value={formData.nomeSocio} onChange={e => setFormData({...formData, nomeSocio: e.target.value})} />
+              <input type="email" placeholder="E-mail do Usuário" className="w-full p-2 border rounded" value={formData.emailSocio} onChange={e => setFormData({...formData, emailSocio: e.target.value})} />
+              <select className="w-full p-2 border rounded" value={formData.empresaId} onChange={e => setFormData({...formData, empresaId: e.target.value})}>
+                <option value="">Selecione a Empresa (Opcional)</option>
+                {companies.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
               </select>
-              <input type="text" placeholder="Nome do Sócio" className="w-full p-2 border rounded" value={formData.nomeSocio} onChange={e => setFormData({...formData, nomeSocio: e.target.value})} />
-              <input type="email" placeholder="E-mail do Sócio" className="w-full p-2 border rounded" value={formData.emailSocio} onChange={e => setFormData({...formData, emailSocio: e.target.value})} />
             </div>
             <div className="flex justify-end gap-2 mt-6">
-              <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 rounded bg-slate-200">Cancelar</button>
-              <button type="submit" disabled={saving} className="px-4 py-2 rounded bg-[#630d16] text-white disabled:opacity-50">{saving ? 'Criando...' : 'Salvar'}</button>
+              <button type="button" onClick={() => setShowUserForm(false)} className="px-4 py-2 rounded bg-slate-200">Cancelar</button>
+              <button type="submit" className="px-4 py-2 rounded bg-[#630d16] text-white">Salvar</button>
             </div>
           </form>
         </div>
