@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, Role } from '../types';
 import { Plus, Edit, Trash2, AlertTriangle, Save, X } from 'lucide-react';
+import { db } from '../lib/firebase';
+import { doc, setDoc, deleteDoc } from 'firebase/firestore';
+import firebaseConfig from '../../firebase-applet-config.json';
 
 interface UserManagementModuleProps {
   currentUser: User;
@@ -12,6 +15,8 @@ export default function UserManagementModule({ currentUser, users, setUsers }: U
   const [isEditing, setIsEditing] = useState(false);
   const [editingUser, setEditingUser] = useState<Partial<User>>({});
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
 
   const filteredUsers = useMemo(() => {
     if (currentUser.role === 'ADMIN') return users;
@@ -30,13 +35,17 @@ export default function UserManagementModule({ currentUser, users, setUsers }: U
     return false;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!editingUser.nome || !editingUser.email || !editingUser.role) {
       setError('Preencha todos os campos obrigatórios.');
       return;
     }
+    const isNew = !editingUser.id;
+    if (isNew && (!newPassword || newPassword.length < 6)) {
+      setError('Defina uma senha com pelo menos 6 caracteres.');
+      return;
+    }
 
-    // Permission checks for creation/editing
     if (currentUser.role === 'GESTOR') {
       if (editingUser.role !== 'COLABORADOR') {
         setError('Gestores só podem gerenciar Colaboradores.');
@@ -48,31 +57,64 @@ export default function UserManagementModule({ currentUser, users, setUsers }: U
       }
     }
 
-    const newUser: User = {
-      ...editingUser as User,
-      id: editingUser.id || Date.now().toString(),
-    };
-
-    const newUsers = editingUser.id
-      ? users.map(u => u.id === editingUser.id ? newUser : u)
-      : [...users, newUser];
-
-    localStorage.setItem('usuarios', JSON.stringify(newUsers));
-    setUsers(newUsers);
-    setIsEditing(false);
-    setEditingUser({});
+    setSaving(true);
     setError('');
-    alert('Usuário salvo com sucesso!');
+    try {
+      let uid = editingUser.id;
+      if (isNew) {
+        const res = await fetch(
+          `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`,
+          { method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ email: editingUser.email, password: newPassword, returnSecureToken: true }) }
+        );
+        const data = await res.json();
+        if (data.error) {
+          if (data.error.message === 'EMAIL_EXISTS') {
+            const existing = users.find(u => u.email === editingUser.email);
+            uid = existing?.id || 'pending_' + Date.now();
+          } else {
+            setError('Erro ao criar conta: ' + data.error.message);
+            setSaving(false);
+            return;
+          }
+        } else {
+          uid = data.localId;
+        }
+      }
+
+      const newUser: User = {
+        ...editingUser as User,
+        id: uid!,
+        empresa_id: editingUser.empresa_id || currentUser.empresa_id,
+      };
+      await setDoc(doc(db, 'users', uid!), newUser);
+
+      const newUsers = isNew
+        ? [...users, newUser]
+        : users.map(u => u.id === editingUser.id ? newUser : u);
+
+      setUsers(newUsers);
+      setIsEditing(false);
+      setEditingUser({});
+      setNewPassword('');
+      alert('Usuário salvo com sucesso!');
+    } catch (err: any) {
+      setError('Erro: ' + (err.message || String(err)));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = (user: User) => {
+  const handleDelete = async (user: User) => {
     if (!canManage(user)) {
       alert('Você não tem permissão para excluir este usuário.');
       return;
     }
     if (confirm('Tem certeza que deseja excluir este usuário?')) {
+      try {
+        await deleteDoc(doc(db, 'users', user.id));
+      } catch (e) { /* ignore */ }
       const newUsers = users.filter(u => u.id !== user.id);
-      localStorage.setItem('usuarios', JSON.stringify(newUsers));
       setUsers(newUsers);
     }
   };
@@ -96,6 +138,7 @@ export default function UserManagementModule({ currentUser, users, setUsers }: U
               
               <input className="w-full mb-4 p-2 border rounded" placeholder="Nome" value={editingUser.nome || ''} onChange={e => setEditingUser({...editingUser, nome: e.target.value})} />
               <input className="w-full mb-4 p-2 border rounded" placeholder="Email" value={editingUser.email || ''} onChange={e => setEditingUser({...editingUser, email: e.target.value})} />
+              {!editingUser.id && <input type="password" className="w-full mb-4 p-2 border rounded" placeholder="Senha Inicial (mínimo 6 caracteres)" value={newPassword} onChange={e => setNewPassword(e.target.value)} />}
               
               <select className="w-full mb-4 p-2 border rounded" value={editingUser.role || ''} onChange={e => setEditingUser({...editingUser, role: e.target.value as Role})}>
                 <option value="COLABORADOR">Colaborador</option>
@@ -111,7 +154,7 @@ export default function UserManagementModule({ currentUser, users, setUsers }: U
               )}
 
               <div className="flex gap-2">
-                <button onClick={handleSave} className="flex-1 bg-green-600 text-white py-2 rounded font-semibold"><Save size={18} className="inline mr-1"/> Salvar</button>
+                <button onClick={handleSave} disabled={saving} className="flex-1 bg-green-600 text-white py-2 rounded font-semibold disabled:opacity-50"><Save size={18} className="inline mr-1"/> {saving ? 'Salvando...' : 'Salvar'}</button>
                 <button onClick={() => setIsEditing(false)} className="flex-1 bg-gray-200 py-2 rounded font-semibold"><X size={18} className="inline mr-1"/> Cancelar</button>
               </div>
             </div>

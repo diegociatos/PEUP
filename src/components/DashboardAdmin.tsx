@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { Building2, Users, CheckCircle, Plus, List } from 'lucide-react';
 import { User, Empresa } from '../types';
 import PasswordDisplayModal from './PasswordDisplayModal';
-import { db, auth } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import { collection, addDoc, setDoc, doc } from 'firebase/firestore';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import firebaseConfig from '../../firebase-applet-config.json';
 
 interface DashboardAdminProps {
   currentUser: User;
@@ -69,9 +69,42 @@ export default function DashboardAdmin({ currentUser, users, setUsers, companies
     try {
       const provisionalPassword = Math.random().toString(36).slice(-12);
       
-      // Cria usuário no Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(auth, formData.emailSocio, provisionalPassword);
-      const userId = userCredential.user.uid;
+      // Cria usuário via REST API (não desloga o admin)
+      const signUpRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`,
+        { method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ email: formData.emailSocio, password: provisionalPassword, returnSecureToken: true }) }
+      );
+      const signUpData = await signUpRes.json();
+
+      let userId: string;
+      let displayPassword = provisionalPassword;
+
+      if (signUpData.error) {
+        if (signUpData.error.message === 'EMAIL_EXISTS') {
+          const existingUser = users.find(u => u.email === formData.emailSocio);
+          if (existingUser) {
+            await setDoc(doc(db, 'users', existingUser.id), {
+              ...existingUser,
+              role: 'SOCIO',
+              empresa_id: formData.empresaId || existingUser.empresa_id,
+            }, { merge: true });
+            displayPassword = '(usar senha atual da conta existente)';
+            setSenhaProvisoria({ nome: formData.nomeSocio, senha: displayPassword });
+            setShowUserForm(false);
+            setFormData({ ...formData, nomeSocio: '', emailSocio: '', empresaId: '' });
+            return;
+          } else {
+            alert('Email já existe no Firebase Auth.');
+            return;
+          }
+        } else {
+          alert('Erro ao criar conta: ' + signUpData.error.message);
+          return;
+        }
+      } else {
+        userId = signUpData.localId;
+      }
 
       // Salva dados no Firestore
       await setDoc(doc(db, 'users', userId), {
