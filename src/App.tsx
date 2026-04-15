@@ -155,6 +155,13 @@ export default function App() {
       setCompanies(companiesData);
       localStorage.setItem('peup_companies', JSON.stringify(companiesData));
       console.log("FIRESTORE_SYNC_COMPANIES", companiesData.length);
+      // Auto-select company: restore from localStorage or pick first
+      setActiveCompany(prev => {
+        if (prev && companiesData.some(c => c.id === prev.id)) return prev;
+        const savedId = localStorage.getItem('peup_active_company_id');
+        const saved = savedId ? companiesData.find(c => c.id === savedId) : null;
+        return saved || companiesData[0] || null;
+      });
     });
 
     const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {

@@ -3,7 +3,7 @@ import { Building2, Users, CheckCircle, Plus, List } from 'lucide-react';
 import { User, Empresa } from '../types';
 import PasswordDisplayModal from './PasswordDisplayModal';
 import { db } from '../lib/firebase';
-import { collection, addDoc, setDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, setDoc, doc, deleteDoc } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 interface DashboardAdminProps {
@@ -222,6 +222,7 @@ export default function DashboardAdmin({ currentUser, users, setUsers, companies
                 <th className="text-left py-2">Sócio Responsável</th>
                 <th className="text-left py-2">Data de Cadastro</th>
                 <th className="text-left py-2">Status</th>
+                <th className="text-left py-2">Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -231,6 +232,23 @@ export default function DashboardAdmin({ currentUser, users, setUsers, companies
                   <td className="py-2">{e.responsavel}</td>
                   <td className="py-2">{e.dataCadastro || 'N/A'}</td>
                   <td className="py-2">{e.status}</td>
+                  <td className="py-2">
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Tem certeza que deseja excluir "${e.nome}"?`)) return;
+                        try {
+                          await deleteDoc(doc(db, 'companies', e.id));
+                          setCompanies(prev => prev.filter(c => c.id !== e.id));
+                        } catch (err) {
+                          console.error('DELETE_COMPANY_ERROR', err);
+                          alert('Erro ao excluir empresa.');
+                        }
+                      }}
+                      className="text-red-600 hover:text-red-800 text-xs font-medium"
+                    >
+                      Excluir
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
