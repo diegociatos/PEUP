@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { Building2, Users, CheckCircle, Plus, List } from 'lucide-react';
 import { User, Empresa } from '../types';
 import PasswordDisplayModal from './PasswordDisplayModal';
-import { httpsCallable } from 'firebase/functions';
-import { functions } from '../lib/firebase';
+import { db } from '../lib/firebase';
+import { doc, setDoc } from 'firebase/firestore';
+import firebaseConfig from '../../firebase-applet-config.json';
 
 interface DashboardAdminProps {
   currentUser: User;
@@ -30,6 +31,8 @@ export default function DashboardAdmin({ currentUser, users, setUsers, companies
     .slice(-3)
     .map(s => ({ nome: s.nome, empresa: companies.find(e => e.id === s.empresa_id)?.nome || 'N/A' }));
 
+  const [saving, setSaving] = useState(false);
+
   const handleSaveEmpresa = async (e: React.FormEvent) => {
     e.preventDefault();
     console.log("CREATE_COMPANY_SUBMIT", formData);
@@ -39,23 +42,91 @@ export default function DashboardAdmin({ currentUser, users, setUsers, companies
       return;
     }
 
+    setSaving(true);
     try {
-      const createCompany = httpsCallable(functions, 'createCompanyWithSocio');
-      const result = await createCompany({
+      // Generate provisional password
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+      const randomPart = Array.from({length: 4}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+      const tempPassword = 'PEUP@' + randomPart;
+
+      // Create Firebase Auth account via REST API
+      const signUpRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`,
+        { method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ email: formData.emailSocio, password: tempPassword, returnSecureToken: true }) }
+      );
+      const signUpData = await signUpRes.json();
+
+      // Save company to Firestore first
+      const newCompanyId = Date.now().toString();
+      const newCompany: Empresa = {
+        id: newCompanyId,
         nome: formData.nomeEmpresa,
         cnpj: formData.cnpj,
         qualificacao: formData.qualificacao,
-        socioNome: formData.nomeSocio,
-        socioEmail: formData.emailSocio
-      });
-      
-      const { provisionalPassword } = result.data as { provisionalPassword: string };
-      setSenhaProvisoria({ nome: formData.nomeSocio, senha: provisionalPassword });
+        segmento: formData.qualificacao,
+        responsavel: formData.nomeSocio,
+        descricao: '',
+        logo_url: '',
+        status: 'Ativa',
+        dataCadastro: new Date().toISOString().split('T')[0],
+      };
+      await setDoc(doc(db, 'companies', newCompanyId), newCompany);
+
+      let displayPassword = tempPassword;
+
+      if (signUpData.error) {
+        if (signUpData.error.message === 'EMAIL_EXISTS') {
+          // Email already has Auth account — link existing user to new company
+          const existingUser = users.find(u => u.email === formData.emailSocio);
+          if (existingUser) {
+            await setDoc(doc(db, 'users', existingUser.id), {
+              ...existingUser,
+              role: 'SOCIO',
+              empresa_id: newCompanyId,
+            }, { merge: true });
+            displayPassword = '(usar senha atual da conta existente)';
+          } else {
+            // Auth account exists but no Firestore doc — create placeholder
+            const placeholderId = 'pending_' + Date.now();
+            const newSocio: User = {
+              id: placeholderId,
+              nome: formData.nomeSocio,
+              email: formData.emailSocio,
+              role: 'SOCIO',
+              empresa_id: newCompanyId,
+              primeiro_acesso: true,
+            };
+            await setDoc(doc(db, 'users', placeholderId), newSocio);
+            displayPassword = '(usar senha atual — conta já existente)';
+          }
+        } else {
+          alert('Erro ao criar conta: ' + signUpData.error.message);
+          setSaving(false);
+          return;
+        }
+      } else {
+        // New Auth account created — save sócio user doc
+        const uid = signUpData.localId;
+        const newSocio: User = {
+          id: uid,
+          nome: formData.nomeSocio,
+          email: formData.emailSocio,
+          role: 'SOCIO',
+          empresa_id: newCompanyId,
+          primeiro_acesso: true,
+        };
+        await setDoc(doc(db, 'users', uid), newSocio);
+      }
+
+      setSenhaProvisoria({ nome: formData.nomeSocio, senha: displayPassword });
       setShowForm(false);
       setFormData({ nomeEmpresa: '', cnpj: '', qualificacao: '', nomeSocio: '', emailSocio: '' });
     } catch (error: any) {
       console.error("Erro ao salvar empresa:", error);
-      alert(error.message);
+      alert('Erro: ' + (error.message || String(error)));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -110,7 +181,7 @@ export default function DashboardAdmin({ currentUser, users, setUsers, companies
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 rounded bg-slate-200">Cancelar</button>
-              <button type="submit" className="px-4 py-2 rounded bg-[#630d16] text-white">Salvar</button>
+              <button type="submit" disabled={saving} className="px-4 py-2 rounded bg-[#630d16] text-white disabled:opacity-50">{saving ? 'Criando...' : 'Salvar'}</button>
             </div>
           </form>
         </div>
