@@ -4,23 +4,27 @@ import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 
 interface LoginProps {
-  onLogin: () => void;
+  onLogin: () => void | Promise<void>;
 }
 
 export default function Login({ onLogin }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
     console.log("LOGIN_ATTEMPT", { email, passwordLength: password.length });
+    setLoading(true);
+    setError('');
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      onLogin();
+      await onLogin();
     } catch (err: any) {
       console.error("LOGIN_ERROR_CODE:", err.code);
       console.error("LOGIN_ERROR_MESSAGE:", err.message);
       setError('Credenciais inválidas. Por favor, verifique seu e-mail e senha.');
+      setLoading(false);
     }
   };
 
@@ -51,12 +55,13 @@ export default function Login({ onLogin }: LoginProps) {
               <Lock className="absolute left-4 top-4 text-gray-500" size={20} />
               <input type="password" placeholder="Senha" className="w-full pl-12 pr-4 py-4 rounded-xl bg-[#0D0D14] border border-white/10 text-white" value={password} onChange={e => setPassword(e.target.value)} />
             </div>
-            <button onClick={handleLogin} className="w-full bg-[#7B1C1C] text-white py-4 rounded-xl font-semibold hover:bg-[#5e1515] transition-all">Entrar</button>
+            <button onClick={handleLogin} disabled={loading} className="w-full bg-[#7B1C1C] text-white py-4 rounded-xl font-semibold hover:bg-[#5e1515] transition-all disabled:opacity-50">{loading ? 'Entrando...' : 'Entrar'}</button>
           </div>
           
           <div className="mt-8 text-center text-sm text-gray-400">
             Não tem uma conta? <a href="#" className="text-[#7B1C1C] font-semibold hover:underline">Solicite acesso</a>
           </div>
+          <div className="mt-4 text-center text-xs text-gray-600">v2.1</div>
         </div>
       </div>
     </div>

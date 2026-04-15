@@ -6,8 +6,8 @@ import HistoricoConquistasModule from './components/HistoricoConquistasModule';
 import MetaIndividualModule from './components/MetaIndividualModule';
 import { LayoutDashboard, Target, CalendarDays, Calendar, BarChart3, Users, Settings, LogOut, CheckCircle2, Award, Bell, Building } from 'lucide-react';
 import { auth, db } from './lib/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
-import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { collection, onSnapshot, query, where, doc, setDoc, getDocs } from 'firebase/firestore';
 import DashboardAdmin from './components/DashboardAdmin';
 import DashboardIndividual from './components/DashboardIndividual';
 import DashboardGestor from './components/DashboardGestor';
@@ -265,10 +265,23 @@ export default function App() {
             setUserToChange(null);
           }} />
         ) : (
-          <Login onLogin={() => {
-            // O currentUser será carregado pelo onAuthStateChanged
-            // Se for primeiro acesso, o Firestore deve ter essa informação
-            // Vamos verificar o estado atual do currentUser após o login
+          <Login onLogin={async () => {
+            // Fallback: se onAuthStateChanged não disparar (ex: mesmo user já logado),
+            // buscar o doc diretamente
+            const user = auth.currentUser;
+            if (user) {
+              const q2 = query(collection(db, 'users'), where('id', '==', user.uid));
+              const snap = await getDocs(q2);
+              if (!snap.empty) {
+                const userData = snap.docs[0].data() as User;
+                setCurrentUser(userData);
+                if (userData.primeiro_acesso) {
+                  setUserToChange(userData);
+                } else {
+                  setIsLoggedIn(true);
+                }
+              }
+            }
           }} />
         )
       ) : (
@@ -297,7 +310,7 @@ export default function App() {
               })}
             </nav>
             <div className="p-6 border-t border-white/10">
-              <button onClick={() => setIsLoggedIn(false)} className="w-full flex items-center gap-4 px-5 py-3 text-white hover:bg-[#4a0a10] rounded-lg transition-colors">
+              <button onClick={() => { signOut(auth); setIsLoggedIn(false); setCurrentUser(null); }} className="w-full flex items-center gap-4 px-5 py-3 text-white hover:bg-[#4a0a10] rounded-lg transition-colors">
                 <LogOut size={20} />
                 <span className="text-[14px]">Sair</span>
               </button>
